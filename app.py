@@ -1,31 +1,58 @@
-import streamlit as st
-from tensorflow.keras.models import load_model
-from PIL import Image
+from flask import Flask, request, jsonify
+import tensorflow as tf
+from tensorflow.keras.preprocessing import image
 import numpy as np
 import json
+from io import BytesIO
 
-# Load model
-MODEL_PATH = "best_model.keras"
-model = load_model(MODEL_PATH)
+# Initialize Flask app
+app = Flask(__name__)
 
-# Load class names
-with open("class_names.json", "r") as f:
+# Load class names from class_names.json file
+with open('class_names.json', 'r') as f:
     class_names = json.load(f)
 
-# Streamlit UI
-st.title("Tomato Leaf Disease Classifier")
+# Load the trained model (best_model.keras or .h5)
+model = tf.keras.models.load_model('best_model.keras')  # Or .h5
 
-uploaded_file = st.file_uploader("Upload a tomato leaf image", type=["jpg", "jpeg", "png"])
-if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+@app.route('/')
+def index():
+    return "Welcome to Tomato Leaf Disease Classifier!"
 
-    # Preprocess
-    img = image.resize((224, 224))
-    img_array = np.array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
+@app.route('/predict', methods=['POST'])
+def predict():
+    # Check if the request contains a file
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'})
+    
+    file = request.files['file']
+    
+    # Check if no file is selected
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'})
 
-    # Predict
-    pred = model.predict(img_array)
-    class_idx = np.argmax(pred, axis=1)[0]
-    st.success(f"Predicted Class: {class_names[class_idx]}")
+    try:
+        # Convert the file to an image object
+        img = image.load_img(BytesIO(file.read()), target_size=(224, 224))  # Resize image to match model input size
+        img_array = image.img_to_array(img) / 255.0  # Normalize the image
+        img_array = np.expand_dims(img_array, axis=0)  # Add batch dimension
+
+        # Get prediction from the model
+        predictions = model.predict(img_array)
+        
+        # Get the index of the predicted class
+        class_idx = np.argmax(predictions, axis=1)
+        
+        # Get the predicted class label from class_names
+        predicted_class = class_names[class_idx[0]]
+
+        # Return the prediction as a JSON response
+        return jsonify({'prediction': predicted_class})
+
+    except Exception as e:
+        # If there's an error, return the error message
+        return jsonify({'error': str(e)})
+
+# Run the app
+if __name__ == '__main__':
+    app.run(debug=True)
